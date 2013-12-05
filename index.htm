@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<meta content="text/html;charset=utf-8" http-equiv="Content-Type">
+		<meta content="utf-8" http-equiv="encoding">
+		<title id="tit"></title>	
+		<script type="text/javascript" src="jquery-1.10.2.js"></script>
+		<script src="raphael-min.js" type="text/javascript" charset="utf-8"></script>
+        <style>
+
+        </style>
+        <script type="text/javascript" charset="utf-8">
+            function readFile(file, fileType)
+            {
+                var fileContents = null;
+                $.ajax({
+                    type: 'GET',
+                    async: false,
+                    url:  file,
+                    dataType: fileType,
+                    success: function(data) {console.info('readFile', "File",file,"successfully read."); fileContents = data;},
+                    error: function(x,msg,z) {console.error('readFile', "Could not read file", file, ":", msg);}
+                });
+                return fileContents;
+            }
+            
+            function applyTransform(coord,trans, scale)
+            {
+                var tokens = coord.split(',');
+                var x = tokens[0];
+                var y = tokens[1];
+                var newX = (scale*(parseFloat(x)+trans.x)).toString();
+                var newY = (scale*(parseFloat(y)+trans.y)).toString();
+//                if ( x < 0 || y < 0 )
+ //                   console.info(x,", ",y, " => ", newX, ", ", newY);
+                return newX + ", " + newY;
+            }
+            function applyScale(str, scale)
+            {
+                var val = parseFloat(str);
+                return (scale*val).toString();
+            }
+            
+            function getTrans(jqElem)
+            {
+                var trans = jqElem.attr('transform');
+                if ( typeof(trans) === 'undefined') {
+                    return null;
+                }
+                var matches = trans.match(/translate\((\-*\d+(\.\d+)*)\,(\-*\d+(\.\d+)*)\)/);
+                var trans_x = parseFloat(matches[1]), trans_y = parseFloat(matches[3]);
+                return { x:trans_x, y:trans_y };
+            }
+            
+            function showSVG(arron, scale)
+            {
+                var svg = readFile('quartiers.svg',"xml");
+			
+                if ( typeof(scale) == 'undefined') {
+                    scale = 1;
+                }
+                var rsr = Raphael('rsr', applyScale('1563',scale), applyScale('998.81458',scale)), c=0;
+                var g_trans = getTrans($('g', svg));
+                var allPaths = $('path', svg);
+                var paths = processPaths(allPaths, g_trans, scale);
+                drawPaths(rsr, paths, arron);
+            }
+            
+            function drawPaths(rsr, paths, arron, idx, drawnElems)
+            {
+                if (typeof(idx) === 'undefined') {
+                    idx = 1;
+                    drawnElems = [];
+                }
+                
+                var defStyling = {stroke: "#666", 'stroke-width':2, fill:"grey", opacity:0.5};
+                var defFadeDelay = 500;
+                var betweenDrawsDelay = 30;
+                var dom = rsr.path(paths[idx]);
+                dom.attr(defStyling);
+                dom[0].style.cursor = "pointer";
+                dom[0].onmouseover = function() {
+                    var entry = arron[idx];
+                    var fillColor;
+                    if ( typeof(entry) == 'undefined') {
+                        fillColor = 'orange';
+                        nom = 'Autre';
+                    }
+                    else {
+                        nom = entry.nom;
+                        var partOfMontreal = parseInt(entry.val);
+                        fillColor = ( partOfMontreal ? 'green' : 'red' );
+                    }
+                    
+                    $('#currArron').html(nom);
+                    dom.animate({fill: fillColor, stroke: "#ccc"}, defFadeDelay);
+                    dom.toFront();
+                }
+                
+                dom[0].onmouseout = function() {
+                    dom.animate(defStyling, defFadeDelay);
+                    dom.toBack();
+                    $('#currArron').html('Aucun');
+                }
+                drawnElems.push(dom);
+                
+                if ( idx+1 == paths.length) {
+                    plotLocation(rsr, drawnElems);
+                }
+                else {
+                    setTimeout(function() {drawPaths(rsr, paths, arron, idx+1, drawnElems);}, betweenDrawsDelay);
+                }
+            }
+            
+            function processPaths(jqElems, g_trans, scale)
+            {
+                var paths = [];
+                for (var idx=0; idx < 42; idx++) {
+                    var currElem = jqElems.eq(idx);
+                    var path = currElem.attr('d');
+                    if (idx) {
+                        var local_trans = getTrans(currElem);
+                        if ( local_trans != null ) {
+                            g_trans.x += local_trans.x;
+                            g_trans.y += local_trans.y;
+                        }
+                        var newpath = "";
+                        if (typeof(path) != 'undefined') {
+                            newpath = 
+                                path.replace(/\-*\d+\.\d+\,(\-*\d+\.\d+)/g, function(match, capture) {
+                                                return applyTransform(match, g_trans, scale);
+                                             } );
+                        }
+                    }
+                    paths.push(newpath);
+                }
+                console.info(paths.length, "paths added.");
+                return paths;
+            }
+            
+            function plotLocation(rsr, drawnElems)
+            {
+                var bbox = drawnElems[0].getBBox();
+                for (var j=1; j < drawnElems.length; j++) {
+                    var mini_bbox = drawnElems[j].getBBox();
+                    //rsr.rect(mini_bbox.x, mini_bbox.y, mini_bbox.x2-mini_bbox.x, mini_bbox.y2-mini_bbox.y).attr({stroke:'purple'});
+                    
+                    bbox.x = Math.min(bbox.x, mini_bbox.x);
+                    bbox.y = Math.min(bbox.y, mini_bbox.y);
+                    bbox.x2 = Math.max(bbox.x2, mini_bbox.x2);
+                    bbox.y2 = Math.max(bbox.y2, mini_bbox.y2);
+                }
+                //rsr.rect(bbox.x, bbox.y, bbox.x2-bbox.x, bbox.y2-bbox.y).attr({stroke:'green'});
+                
+                var bboxIleDorval = drawnElems[11].getBBox();
+                var fixPoint1 = { x: bboxIleDorval.x, y: bboxIleDorval.y };
+                rsr.circle(fixPoint1.x, fixPoint1.y, 2).attr({stroke:'blue'}).glow();
+                
+                var bboxCiteDuHavre = drawnElems[29].getBBox();
+                var fixPoint2 = {x:bboxCiteDuHavre.x2, y:bboxCiteDuHavre.y};
+                rsr.circle(fixPoint2.x, fixPoint2.y, 2).attr({stroke:'blue'}).glow();
+
+                coordsIleDorval = { lat: 45.4328500, lng: -73.7459833 };
+                coordsCiteDuHavre = { lat: 45.5079167, lng: -73.5430833 };
+                if (navigator.geolocation) {
+                    navigator.geolocation.getCurrentPosition(
+                        function(pos) {
+                            var myPos = { lat: pos.coords.latitude, lng:pos.coords.longitude };
+                            console.info("My position: (", myPos.lat, ",", myPos.lng, ")");
+                            console.info("Fix point 1 - Île Dorval: (", coordsIleDorval.lat, ",", coordsIleDorval.lng, ") => ", fixPoint1.x, ",", fixPoint1.y);
+                            console.info("Fix point 2 - Pointe de la Cité-du-Havre: (", coordsCiteDuHavre.lat, ",", coordsCiteDuHavre.lng, ") => ", fixPoint2.x, ",", fixPoint2.y);
+                            
+                            var scaleLngToX = (fixPoint2.x - fixPoint1.x) / (coordsCiteDuHavre.lng - coordsIleDorval.lng);
+                            var scaleLatToY = (fixPoint2.y - fixPoint1.y) / (coordsCiteDuHavre.lat - coordsIleDorval.lat);
+                            console.info("Scale X,Y:", scaleLngToX, ",", scaleLatToY);
+                            
+                            var deltaLat = myPos.lat - coordsIleDorval.lat;
+                            var deltaLng = myPos.lng - coordsIleDorval.lng;
+                            rsr.circle(fixPoint1.x + scaleLngToX*deltaLng, fixPoint1.y + scaleLatToY*deltaLng, 3);
+                        }, function(error) {
+                            alert('Error occurred. Error code: ' + error.code);         
+                        }, {timeout:50000});
+                }
+                else {
+                    alert('no geolocation support');
+                }
+            }
+            
+        </script>
+		<script type="text/javascript">
+			$(document).ready( function()
+			{          
+
+			});
+			
+            function init()
+            {
+                var titre = "Connaissez-vous vos arrondissements montréalais ?";
+                document.title = titre;
+                $('#hed').html(titre);
+                var arron = readFile('arrondissements.json','json');
+                showSVG(arron, .5);
+            }
+            
+		</script>
+	</head>
+	<body onload="init();">
+		<h1 id="hed" style="margin:1px"></h1>
+        <div id="rsr" style="overflow:visible"></div>
+        <div id="legend" style="display:inline; vertical-align:text-bottom">
+            <svg xmlns="http://www.w3.org/2000/svg" version="1.1" width="15" height="15" >
+                <rect width="15" height="15" style="fill:green"/>
+            </svg>
+            <label style="margin-right:5px">Arrondissement de Montréal</label>
+            <svg xmlns="http://www.w3.org/2000/svg" version="1.1" width="15" height="15" >
+                <rect width="15" height="15" style="fill:red"/>
+            </svg>
+            <label>Arrondissement intransigeant</label>
+        </div>
+        <p id="caption" style="font-weight:bold">Arrondissement mis en évidence: <span id="currArron" style="font-style:italic">Aucun</span></p>
+	</body>
+</html>
